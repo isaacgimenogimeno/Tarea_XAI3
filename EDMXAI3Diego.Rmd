@@ -1,0 +1,140 @@
+---
+title: "EDMXAI1"
+author: "diego"
+date: "2026-04-20"
+output: html_document
+---
+
+Paso 0: Preparación de datos
+
+Suponemos que se sigue el mismo preproceso que en la tarea de XAI1
+
+```{r}
+library(ranger)
+library(pdp)
+library(ggplot2)
+library(ggExtra)
+library(dplyr)
+set.seed(123)
+day=read_csv('day.csv')
+head(day)
+```
+
+```{r}
+day_pre=day
+day_pre$is_winter=as.numeric(day_pre$season==1)
+day_pre$is_spring=as.numeric(day_pre$season==2)
+day_pre$is_summer=as.numeric(day_pre$season==3)
+day_pre$MISTY=as.numeric(day_pre$weathersit==2)
+day_pre$RAIN=as.numeric(day_pre$weathersit>=3)
+day_pre$tempD=day_pre$temp*(47)-8
+day_pre$humD=day_pre$hum*100
+day_pre$windspeedD=day_pre$windspeed*67
+day_pre$days_since_2011=day_pre$instant-1
+day_pre$instant=NULL
+day_pre$windspeed=NULL
+day_pre$hum=NULL
+day_pre$temp=NULL
+day_pre$atemp=NULL
+day_pre$weathersit=NULL
+day_pre$season=NULL
+day_pre$dteday=NULL
+day_pre$yr=NULL
+day_pre$mnth=NULL
+day_pre$weekday=NULL
+day_pre$casual=NULL
+day_pre$registered=NULL
+```
+
+Ejercicio 1
+
+```{r}
+rf_full <- ranger(
+  cnt ~ days_since_2011 + tempD + humD + windspeedD,
+  data = day_pre,
+  num.trees = 300,
+  mtry = 2,
+  importance = "permutation"
+)
+print(rf_full)
+
+# PDP dias
+pdp_instant <- partial(rf_full, pred.var = "days_since_2011", train = day_pre, grid.resolution = 30)
+autoplot(pdp_instant, smooth = TRUE) +
+  labs(title = "PDP: Dias desde 2011",
+       x = "Days since 2011", y = "cnt") +
+  theme_minimal()
+
+# PDP temperatura
+pdp_temp <- partial(rf_full, pred.var = "tempD", train = day_pre, grid.resolution = 30)
+autoplot(pdp_temp, smooth = TRUE) +
+  labs(title = "PDP: Temperatura normalizada",
+       x = "Temperature", y = "cnt") +
+  theme_minimal()
+
+# PDP humedad
+pdp_hum <- partial(rf_full, pred.var = "humD", train = day_pre, grid.resolution = 30)
+autoplot(pdp_hum, smooth = TRUE) +
+  labs(title = "PDP: Humedad 0-1",
+       x = "Humidity", y = "cnt") +
+  theme_minimal()
+
+# PDP viento
+pdp_wind <- partial(rf_full, pred.var = "windspeedD", train = day_pre, grid.resolution = 30)
+autoplot(pdp_wind, smooth = TRUE) +
+  labs(title = "PDP: Rachas de viento normalizas",
+       x = "Wind speed", y = "cnt") +
+  theme_minimal()
+```
+
+El modelo de predicción para nuestras ventas de bicicletas explica el 88 % de la varianza total, con un error cuadrático medio de 449 899. Esto indica un muy buen ajuste, capaz de predecir el número de bicicletas alquiladas a partir del resto de variables normalizadas. El error residual es de aproximadamente 671 bicicletas (raiz de 449898), lo cual es muy aceptable dado que las ventas oscilan entre 22 y 8714.
+
+La PDP de days_since_2011 muestra una tendencia claramente creciente, salvo al final. Al principio las predicciones son bajas, pero cuando va pasando el tiempo, las ventas superan las 4000‑5000. Esto refleja un aumento estacional y estructural en la demanda, ya sea por más usuarios registrados, mayor popularidad del servicio, o otros factores externos.
+
+En el PDP de temperatureD, el efecto es no lineal. Para temperaturas muy bajas, las predicciones son mínimas. Pero suben rápidamente hasta una temperatura templada/cálida donde se alcanzan las máximas previsiones en 5300. A partir de ahí, descienden suavemente para temperaturas altas, probablemente porque el calor extremo desincentiva el ejercicio físico.
+
+El PDP de humedad muestra relación inversa a partir de una cierta humedad. Cuando la humedad es del 0 al 60, las predicciones rondan las 5000. Sin embargo, a partir de 60 de humedad, las previsiones de ventas caen. La alta humedad suele deberse a mal tiempo como lluvia o bochorno en caso de que tambien haya alta temperatura, lo que suele menguar el número de usuarios.
+
+El PDP de viento muestra que el efecto es también inverso y más directo que con la humendad. Para vientos nulos las ventas comienzan en 4750, y van bajando hasta 4000 a medida que la velocidad del viento aumenta. Los ventos fuertes dificultan la conducción y reducen la comodidad, y el modelo capta esa disminución correctamente.
+
+En conjunto, el modelo ha aprendido que los días cálidos, secos y sin viento son los que más bicicletas atraen, especialmente en el segundo año de la muestra.
+
+Ejercicio 2
+
+```{r}
+df=day_pre
+rf_sample <- ranger(
+  cnt ~ tempD + humD + windspeedD + days_since_2011,
+  data = df,
+  num.trees = 300,
+  mtry = 2
+)
+
+temp_range <- seq(min(df$tempD), max(df$tempD), length.out = 40)
+hum_range  <- seq(min(df$humD),  max(df$humD),  length.out = 40)
+grid_2d <- expand.grid(tempD = temp_range, humD = hum_range)
+
+typical_instant <- median(df$days_since_2011) #medianas para poner un valor usual
+typical_windspeed <- median(df$windspeedD)#para las dependencias parciales
+grid_data <- grid_2d %>%
+  mutate(days_since_2011 = typical_instant,
+         windspeedD = typical_windspeed)
+
+#random forest
+grid_data$pred_cnt <- predict(rf_sample, data = grid_data)$predictions
+
+#PDP 2d
+p_2d <- ggplot(grid_data, aes(x = tempD, y = humD, color = pred_cnt)) +
+  geom_point(size = 2) +
+  scale_color_viridis_c(option = "C", name = "Prediccion de ventas") +
+  labs(title = "PDP 2d",  x = "Temperatura", y = "Humedad") +
+  theme_minimal()
+
+library(ggExtra)
+p_2d_margen <- ggMarginal(p_2d, data = df, 
+                                 x = tempD, y = humD,
+                                 type = "density", margins = "both",
+                                 size = 5, fill = "lightblue")
+
+print(p_2d_margen)
+```

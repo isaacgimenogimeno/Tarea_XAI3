@@ -1,0 +1,123 @@
+---
+title: "ej3"
+author: "Haoxiang"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+install.packages('pdp')
+library(randomForest)
+library(pdp)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+df <- read.csv("kc_house_data.csv")
+```
+
+
+```{r}
+df <- df[, c(
+  "price",
+  "bedrooms",
+  "bathrooms",
+  "sqft_living",
+  "sqft_lot",
+  "floors",
+  "yr_built"
+)]
+```
+
+
+```{r}
+set.seed(123)
+
+df_sample <- df %>%
+  sample_n(1500)
+```
+
+
+```{r}
+library(randomForest)
+
+model <- randomForest(
+  price ~ .,
+  data = df_sample,
+  ntree = 100
+)
+```
+
+
+```{r}
+
+pdp_sqft <- partial(
+  model,
+  pred.var = "sqft_living",
+  train = df_sample
+)
+
+autoplot(pdp_sqft) +
+  ggtitle("PDP for sqft_living") +
+  xlab("sqft_living") +
+  ylab("Predicted price")
+```
+The Partial Dependence Plot for sqft_living shows a very strong positive relationship between the living area of the house and the predicted price. As the square footage increases, the predicted price also increases continuously.
+For small and medium-sized houses, the growth is progressive and relatively stable. However, after approximately 6500–7000 square feet, the curve becomes much steeper, indicating that very large houses are associated with substantially higher predicted prices. This suggests that the model considers sqft_living one of the most influential variables for price prediction.
+At the highest values, the curve begins to flatten slightly. This may indicate a saturation effect, where increasing the living area still raises the predicted price but at a slower rate. Small fluctuations in the curve are expected because Random Forest models generate piecewise predictions based on decision trees.
+Overall, the graph indicates that larger living spaces strongly increase the estimated house value.
+
+
+```{r}
+pdp_bedrooms <- partial(
+  model,
+  pred.var = "bedrooms",
+  train = df_sample
+)
+
+autoplot(pdp_bedrooms) +
+  ggtitle("PDP for bedrooms") +
+  xlab("bedrooms") +
+  ylab("Predicted price")
+```
+The PDP for bedrooms shows a much weaker relationship with price compared to sqft_living. The predicted price does not increase smoothly as the number of bedrooms increases.
+From 0 to around 4 bedrooms, the curve fluctuates considerably, with both increases and decreases in the predicted price. These irregularities suggest that the number of bedrooms alone is not a highly informative variable for the model. This behaviour may also be caused by correlations with other variables such as sqft_living and bathrooms.
+After approximately 5 bedrooms, the predicted price increases and then stabilizes around 6–8 bedrooms. This suggests that houses with a larger number of bedrooms tend to have slightly higher prices, although the effect is relatively moderate.
+The instability of the curve may also indicate that some bedroom configurations are uncommon in the dataset, producing noisier predictions. Overall, the graph suggests that bedrooms has a limited influence on price when compared with other variables.
+
+```{r}
+pdp_bathrooms <- partial(
+  model,
+  pred.var = "bathrooms",
+  train = df_sample
+)
+autoplot(pdp_bathrooms) +
+  ggtitle("PDP for bathrooms") +
+  xlab("bathrooms") +
+  ylab("Predicted price")
+```
+The PDP for bathrooms shows a strong positive relationship with house prices. As the number of bathrooms increases, the predicted price generally increases as well.
+The increase is relatively gradual between 1 and 5 bathrooms. However, around 5.5 bathrooms, the curve rises very sharply, indicating that luxury houses with many bathrooms are associated with much higher predicted prices.
+After this large increase, the curve becomes more stable again, suggesting that additional bathrooms beyond this point still contribute positively but with smaller marginal gains.
+This graph indicates that the model considers the number of bathrooms an important predictor of house value. The sharp jump may also reflect the presence of expensive high-end properties in the dataset, where a large number of bathrooms is associated with premium houses.
+
+
+```{r}
+pdp_floors <- partial(
+  model,
+  pred.var = "floors",
+  train = df_sample
+)
+autoplot(pdp_floors) +
+  ggtitle("PDP for floors") +
+  xlab("floors") +
+  ylab("Predicted price")
+```
+The PDP for floors shows a moderate positive relationship between the number of floors and the predicted price.
+The predicted price increases steadily from 1 floor to around 3 floors, suggesting that multi-story houses tend to be more expensive than single-story houses. The largest increase appears between 2 and 2.5 floors.
+After approximately 3 floors, the curve stabilizes and slightly decreases. This may indicate that adding more floors beyond a certain point does not substantially increase the predicted value of the property.
+Compared with sqft_living and bathrooms, the influence of floors is smaller and more stable. Therefore, the number of floors appears to have a moderate but not dominant effect on house prices.
+
+
+
